@@ -1,4 +1,4 @@
-# Rule reference: R001 to R018
+# Rule reference: R001 to R019
 
 Every one of these rules turns something the static analysis cannot bound
 into a finding, and every finding widens the test run. Rules never narrow
@@ -120,17 +120,21 @@ subject at run time.
   `pkgutil.extend_path`, and pytest's helpers `monkeypatch.syspath_prepend`
   and `pytester.syspathinsert` (matched by method name on any receiver;
   over-approximating a look-alike costs precision, never soundness).
-- Scope and reasons, three cases:
+- Scope and reasons, four cases:
   - Import-time (module level or class body) in a conftest: global.
     `{path} mutates sys.path at import time, and conftests execute unconditionally during collection.`
-  - Import-time in a plain module: global-if-reached.
+  - Import-time in a changed plain module: global.
+    `{path} changed and mutates sys.path at import time, so its process-wide import effects cannot be bounded.`
+  - Import-time in a changed verified isolated entry point: global-if-reached.
+    `{path} mutates sys.path at import time, but it is a verified isolated entry point and no test can reach it.`
+  - Import-time in an unchanged plain module: global-if-reached.
     `{path} mutates sys.path at import time, which perturbs every later import in the process, but only if something imports this module during the test session.`
   - Function-level anywhere: closure-taint.
     `{path} mutates sys.path inside a function, making its own dynamic behavior unknowable at runtime.`
 - Example: a module does `sys.path.insert(0, ...)` at the top level. If any
   test imports it, every later import in the process may resolve
-  differently, so the run goes global; if nothing reaches it, the finding is
-  recorded and changes nothing. The three-way split was refined by the
+  differently, so the run goes global; if the module is unchanged and nothing
+  reaches it, the finding is recorded and changes nothing. The scope split was refined by the
   replay study; the story is in [docs/study.md](study.md).
 
 ## R009: exec, eval, or compile
@@ -240,6 +244,27 @@ subject at run time.
   selection and a report carrying the R018 finding, prints
   `acquit: internal error, run all tests: ...`, and exits 3. A crash and a
   hostile input converge on the same safe answer.
+
+## R019: unproven isolated entry point
+
+- Trigger: a path in `isolated_entrypoints` cannot be proven to be a standalone
+  Python command entry point. Acquit requires a parseable plain module that
+  pytest cannot collect, no incoming first-party import or plugin edge, no
+  unparseable Python file, and no opaque dynamic importer, `exec`/`eval`, or
+  opaque module `__getattr__` anywhere in the repository.
+- Scope: global.
+- Reason: `{path} is declared as an isolated entry point but cannot be proven isolated: {detail}.`
+- Configuration: declare only scripts that are intended to run from the command
+  line and already meet those checks:
+
+  ```toml
+  [tool.acquit]
+  isolated_entrypoints = ["scripts/import_data.py"]
+  ```
+
+  The declaration is evaluated from the analyzed head tree. The selection
+  artifact binds its result to that tree fingerprint, so a later import or
+  collection change is analyzed again rather than inheriting the declaration.
 
 ## Deliberate non-triggers
 

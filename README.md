@@ -7,7 +7,13 @@
 
 Provably skip unaffected pytest tests on every pull request. Static analysis, fail-closed, with evidence for every skip.
 
-> Status: alpha. The engine works: on real pull requests acquit makes selective decisions, and every skip ships with a machine-checkable witness that is re-verified by replay before pytest honors it. Every failure mode still converges on "run everything". The CLI is on PyPI (`pip install acquit==0.1.1`<!-- x-release-please-version -->), so the analysis itself pins cleanly. Both the CLI and the GitHub Action pin cleanly to v0.1.0. Re-export narrowing for fat package inits exists and ships disabled: it survived an adversarial break-and-fix cycle before anyone relied on it, and its measured applicability where it engages is 6.7 percent of submodules ([docs/study.md](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/study.md) has the full story).
+> Status: alpha. The engine works: on real pull requests acquit makes selective decisions, and every skip ships with a machine-checkable witness that is re-verified by replay before pytest honors it. Every failure mode still converges on "run everything".
+>
+> The CLI is on PyPI (`pip install acquit==0.3.0`<!-- x-release-please-version -->), so the analysis itself pins cleanly.
+>
+> Both the CLI and the GitHub Action pin cleanly to v0.3.0. <!-- x-release-please-version -->
+>
+> Re-export narrowing for fat package inits exists and ships disabled: it survived an adversarial break-and-fix cycle before anyone relied on it, and its measured applicability where it engages is 6.7 percent of submodules ([docs/study.md](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/study.md) has the full story).
 
 ## What it does
 
@@ -53,7 +59,7 @@ jobs:
           # The base ref must exist locally; shallow clones always fall back to run-all.
           fetch-depth: 0
 
-      - uses: rajeev-chaurasia/acquit@v0.1.1 # x-release-please-version
+      - uses: rajeev-chaurasia/acquit@v0.3.0 # x-release-please-version
         with:
           mode: report
 
@@ -113,7 +119,7 @@ Acquit occupies one niche: fail-closed static selection with a proof per skip, o
 
 ## FAQ
 
-**Static analysis cannot be sound in Python.** It cannot bound everything, and acquit does not try. Anything outside what static imports can bound (non-literal importlib, exec, sys.path mutation, changed conftests, dependency bumps, unparseable files, and the rest of an eighteen-rule table) fails closed to running more tests, up to everything. Soundness comes from the direction of the failure, not from the reach of the analysis. Measured: 198 replayed PRs, zero unsafe skips, every skip re-verified by `acquit replay` from first principles.
+**Static analysis cannot be sound in Python.** It cannot bound everything, and acquit does not try. Anything outside what static imports can bound (non-literal importlib, exec, sys.path mutation, changed conftests, dependency bumps, unparseable files, and the rest of a nineteen-rule table) fails closed to running more tests, up to everything. Soundness comes from the direction of the failure, not from the reach of the analysis. Measured: 198 replayed PRs, zero unsafe skips, every skip re-verified by `acquit replay` from first principles.
 
 **Why file-level selection instead of test-level?** Module-level imports are the unit static analysis can bound honestly. Function-level selection would require bounding fixture resolution and parametrization behavior, and a bound I cannot defend is a skip I will not make. Function-level granularity is on the research list, not in the product.
 
@@ -124,7 +130,7 @@ Acquit occupies one niche: fail-closed static selection with a proof per skip, o
 ## Documentation
 
 - [CLI reference](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/cli.md): every subcommand, flag, document schema, exit code, and the action's inputs and outputs
-- [Rule reference](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/rules.md): R001 to R018, with triggers, scopes, and the exact reason texts
+- [Rule reference](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/rules.md): R001 to R019, with triggers, scopes, and the exact reason texts
 - [Soundness contract](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/soundness.md): what "provably unaffected" means, its assumptions, and its limits
 - [Architecture decision records](https://github.com/rajeev-chaurasia/acquit/tree/main/docs/adr): fail-closed policy, static analysis, rustworkx, the action, the study, granularity, tree binding, and the precision work (re-export narrowing, constant folding, derived registries)
 - [The replay study](https://github.com/rajeev-chaurasia/acquit/blob/main/docs/study.md): 198 replayed PRs, and [how to re-run it](https://github.com/rajeev-chaurasia/acquit/blob/main/study/README.md)

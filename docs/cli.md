@@ -151,7 +151,8 @@ The full account of the run, for humans and for `comment`/`ci-outputs`:
 tool version and graph schema, base and head shas, graph summary (hash,
 node and edge counts, import roots), every changed file with its
 classification and status, the decision mode with every policy finding and
-waiver, the per-test verdicts (`selected` with reasons, `skipped` with
+the causal `blockers` that forced a full-suite decision, every waiver, the
+per-test verdicts (`selected` with reasons, `skipped` with
 witness ids, `always_run` with the capturing finding), and stats, including
 `estimated_seconds_saved` when `--durations` was given.
 
@@ -162,7 +163,10 @@ and binds the analyzed tree: `mode`, `graph_hash`, `tree.head_sha`,
 `tree.fingerprint`, `artifacts` (repo-relative paths of the three documents,
 null when they landed outside the repo), and `skip` entries of
 `{path, witness}`. Anything not listed runs; a tree that no longer matches
-the fingerprint runs everything. See
+the fingerprint runs everything. Its optional `canary` block mirrors the
+static selected/always-run reasons, changed-path classification, and causal
+fallback findings for the observation-only plugin; it is never used to
+enforce a skip. See
 [ADR 0007](adr/0007-selection-v2-tree-binding.md) for why.
 
 ### `acquit/witnesses-v1` (the witnesses)
@@ -179,11 +183,40 @@ all of it.
 | Variable | Read by | Meaning |
 | --- | --- | --- |
 | `ACQUIT_SELECTION_FILE` | the pytest plugin | Path to a selection document. Unset or empty, the plugin is inert and pytest is untouched. Set, the plugin verifies the document once per session (schema, mode, graph hash, tree fingerprint) and deselects the listed files; any failure means every test runs, stated in the pytest header. Explicitly named files on the pytest command line always run. |
-| `ACQUIT_CANARY` | the pytest plugin | Set to a literal `1` alongside `ACQUIT_SELECTION_FILE`, switches the plugin to canary mode: the document is verified exactly as usual but nothing is deselected. Every test runs, and at session end the plugin classifies outcomes against the would-be-skipped files, printing a loud `acquit canary: ALARM:` line (with the witness id) for any that failed, or a `clean` line when all passed, and writing an `acquit/canary-v1` verdict document beside the selection file (its path with a `.canary.json` suffix). The exit status is never altered, and a refused document makes no canary claims. Any other value leaves ordinary enforce behavior untouched. |
+| `ACQUIT_CANARY` | the pytest plugin | Set to a literal `1` alongside `ACQUIT_SELECTION_FILE`, switches the plugin to canary mode: the document is verified exactly as usual but nothing is deselected. Every test runs, and at session end the plugin classifies outcomes against the would-be-skipped files, printing a loud `acquit canary: ALARM:` line (with the witness id) for any that failed, or a `clean` line when all passed. It writes `acquit/canary-v2` JSON and a Markdown summary beside the selection file (with `.canary.json` and `.canary.md` suffixes). The exit status is never altered. Any other value leaves ordinary enforce behavior untouched. |
 | `ACQUIT_CACHE_DIR` | `select`, `analyze`, `explain` | Base directory for the parse cache. Unset, the cache lives in the platform user cache directory (never inside the checkout), namespaced per repository root. Replay never uses a cache. |
 | `GITHUB_TOKEN` | `comment` | Token for the PR comment API calls. Required for `comment`; without it the comment is skipped with a warning and CI is unaffected. |
 | `GITHUB_REPOSITORY`, `GITHUB_REF`, `GITHUB_API_URL` | `comment` | The `owner/repo` slug (required), the PR ref used to infer the number when `--pr` is not given, and an optional API endpoint override. |
 | `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY` | `ci-outputs` | The Actions runner files the outputs and summary are appended to. |
+
+## Canary evidence
+
+Canary is observation-only: it never changes pytest's exit code or what the
+plugin deselects. A verified canary run writes two companion files beside its
+selection document:
+
+- `*.canary.json` is the versioned `acquit/canary-v2` artifact. It records
+  static selection context for each pytest node, repo-relative modules first
+  loaded during that node's fixture/setup/call/teardown protocol, fixture
+  providers, observed plugin modules, explicit uncertainty markers, and the
+  shadow-validation result. A failing would-be-skipped test is a
+  high-severity `missed-impact` event.
+- `*.canary.md` is the short reviewer summary of the same evidence.
+
+The bundled self-host workflow uploads both files as `acquit-canary-evidence`.
+Other workflows can upload the paths returned by `canary-report-file` and
+`canary-summary-file`. Retention is controlled by that workflow's artifact
+policy; Acquit does not persist evidence or environment snapshots itself.
+The stable `stats`, `runtime_edges`, and `missed_impact` fields can be
+aggregated across retained artifacts to measure fallback and missed-impact
+rates.
+
+The artifact intentionally includes only repo-relative paths, fixture names,
+and plugin module names, never absolute paths, environment values, or command
+lines. A refused/stale selection produces an `incomplete` record with its
+reason rather than a validation claim. Runtime evidence is not an enforcement
+input in this release; any future consumer must treat incomplete, stale, or
+unknown evidence as a full-suite fallback.
 
 ## The GitHub Action
 
@@ -196,7 +229,7 @@ outputs mirror [action.yml](../action.yml).
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `base-ref` | the PR base | Base ref to diff against. |
-| `acquit-version` | `0.0.1` | Version of the acquit package to run. |
+| `acquit-version` | `0.3.0` <!-- x-release-please-version --> | Version of the acquit package to run. |
 | `acquit-source` | `pypi` | Where acquit itself is installed from. `pypi` pins `acquit==acquit-version`; `local` installs from the working-directory checkout, which is how acquit dogfoods unreleased code on its own PRs. |
 | `working-directory` | `.` | Directory containing the project to analyze. |
 | `mode` | `report` | `report`: analyze, verify, comment, and set outputs, but never skip a test. `canary`: additionally export `ACQUIT_SELECTION_FILE` and `ACQUIT_CANARY` so the full suite still runs while the pytest plugin classifies outcomes against the verified selection; a failing would-be-skipped test raises a loud alarm at zero risk. `enforce`: export `ACQUIT_SELECTION_FILE` alone so the pytest plugin honors the verified selection and skips. Anything unrecognized means `report`. |
@@ -209,6 +242,8 @@ outputs mirror [action.yml](../action.yml).
 | `mode` | Selection mode after verification: `run-all` or `selective`. |
 | `report-file` | Path to the report JSON. |
 | `selection-file` | Path to the selection JSON consumed by the pytest plugin. |
+| `canary-report-file` | Path where canary JSON evidence is written after pytest finishes. |
+| `canary-summary-file` | Path where the concise Markdown canary summary is written after pytest finishes. |
 | `skipped-count` | Number of test files provably unaffected. |
 | `selected-count` | Number of test files selected by impact. |
 | `always-run-count` | Number of test files forced to run by a policy finding. |

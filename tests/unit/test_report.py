@@ -91,6 +91,7 @@ def _result() -> SelectResult:
     return SelectResult(
         decision=decision,
         outcome=PolicyOutcome(findings=(), waived=(waived,)),
+        blocking_findings=(),
         head=snapshot,
         changed=changed,
         changed_kinds={"src/a.py": NodeKind.MODULE},
@@ -115,6 +116,7 @@ def test_build_report_full_shape() -> None:
     assert report["changed"] == [{"path": "src/a.py", "kind": "module", "status": "modified"}]
     assert report["decision"]["mode"] == "selective"
     assert report["decision"]["findings"] == []
+    assert report["decision"]["blockers"] == []
     assert report["decision"]["waivers"] == [
         {"rule": "R001", "glob": "data.*", "justification": "fixture data", "subject": "data.csv"}
     ]
@@ -230,6 +232,12 @@ def test_build_selection_doc_binds_skips_to_the_analyzed_tree() -> None:
     assert document["tree"] == {"head_sha": "h" * 40, "fingerprint": "f" * 64}
     assert document["artifacts"] == {"report": None, "selection": None, "witnesses": None}
     assert document["skip"] == [{"path": "tests/test_b.py", "witness": "w-000001"}]
+    assert document["canary"] == {
+        "selected": [{"path": "tests/test_a.py", "reasons": ["reachable-from:src/a.py"]}],
+        "always_run": [],
+        "fallback": [],
+        "changed": [],
+    }
 
 
 def test_build_selection_doc_records_in_repo_artifacts() -> None:
@@ -251,6 +259,7 @@ def test_run_all_report_shape() -> None:
     assert report["schema"] == REPORT_SCHEMA
     assert report["decision"]["mode"] == "run-all"
     assert report["decision"]["findings"][0]["rule"] == "R018"
+    assert report["decision"]["blockers"][0]["rule"] == "R018"
     assert report["tests"]["skipped"] == []
     assert report["graph"] == {"hash": None, "nodes": 0, "edges": 0, "roots": []}
     assert report["changed"] == []

@@ -10,7 +10,7 @@ from acquit import pipeline, vcs
 from acquit.config import AcquitConfig, load_config
 from acquit.graph.cache import ParseCache
 from acquit.pipeline import Snapshot, run_select, snapshot_tree
-from acquit.policy.model import RuleId
+from acquit.policy.model import RuleId, ScopeKind
 from acquit.pytestmap.pytestcfg import PytestConfig, load_pytest_config
 from acquit.report import SelectionMode
 from acquit.select import Decision, import_closure
@@ -44,6 +44,128 @@ def test_select_change_selects_only_the_importing_test(scenario_repo: ScenarioRe
     }
     assert result.base_sha == scenario_repo.base
     assert result.head_sha == scenario_repo.alpha_change
+
+
+@pytest.mark.parametrize("invocation_subdir", ["", "backend"])
+def test_nested_src_layout_never_skips_direct_importer(
+    repo_builder: RepoBuilder, invocation_subdir: str
+) -> None:
+    repo_builder.write(
+        {
+            "backend/pyproject.toml": """\
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+""",
+            "backend/src/app/__init__.py": "",
+            "backend/src/app/service.py": "def answer() -> int:\n    return 41\n",
+            "backend/tests/test_service.py": (
+                "from app.service import answer\n\n\n"
+                "def test_answer() -> None:\n"
+                "    assert answer() == 41\n"
+            ),
+        }
+    )
+    base = repo_builder.commit("base")
+    repo_builder.write({"backend/src/app/service.py": "def answer() -> int:\n    return 42\n"})
+    head = repo_builder.commit("break service test")
+    cwd = repo_builder.path / invocation_subdir
+
+    result = run_select(base, head, cwd)
+
+    assert result.head.index.roots == ("", "backend/src", "backend/tests")
+    assert import_closure(result.head.graph, "backend/tests/test_service.py") >= {
+        "backend/src/app/__init__.py",
+        "backend/src/app/service.py",
+    }
+    assert result.decision.mode is SelectionMode.RUN_ALL
+    assert result.decision.skipped == ()
+    assert result.decision.witnesses == ()
+
+
+def test_unreachable_sys_path_script_does_not_block_nested_suite(
+    repo_builder: RepoBuilder,
+) -> None:
+    repo_builder.write(
+        {
+            "backend/pyproject.toml": """\
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+""",
+            "backend/src/app/__init__.py": "",
+            "backend/src/app/alpha.py": "VALUE = 1\n",
+            "backend/src/app/beta.py": "VALUE = 1\n",
+            "backend/scripts/benchmark_27b.py": (
+                "import sys\n"
+                "from pathlib import Path\n\n"
+                "sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))\n"
+            ),
+            "backend/tests/test_alpha.py": (
+                "from app import alpha\n\n\ndef test_alpha():\n    assert alpha.VALUE\n"
+            ),
+            "backend/tests/test_beta.py": (
+                "from app import beta\n\n\ndef test_beta():\n    assert beta.VALUE\n"
+            ),
+        }
+    )
+    base = repo_builder.commit("base")
+    repo_builder.write({"backend/src/app/alpha.py": "VALUE = 2\n"})
+    head = repo_builder.commit("change alpha")
+
+    result = run_select(base, head, repo_builder.path / "backend")
+
+    r008 = tuple(
+        finding for finding in result.outcome.findings if finding.rule is RuleId.SYS_PATH_MUTATION
+    )
+    assert len(r008) == 1
+    assert r008[0].scope.kind is ScopeKind.GLOBAL_IF_REACHED
+    assert result.blocking_findings == ()
+    assert result.decision.mode is SelectionMode.SELECTIVE
+    assert selected_paths(result.decision) == {"backend/tests/test_alpha.py"}
+    assert skipped_paths(result.decision) == {"backend/tests/test_beta.py"}
+
+    repo_builder.write(
+        {
+            "backend/scripts/benchmark_27b.py": (
+                "import sys\n"
+                "from pathlib import Path\n\n"
+                "sys.path.insert(0, str(Path(__file__).parent.parent / 'vendor'))\n"
+            )
+        }
+    )
+    mutator_head = repo_builder.commit("change benchmark path")
+
+    changed_mutator = run_select(head, mutator_head, repo_builder.path / "backend")
+
+    assert changed_mutator.decision.mode is SelectionMode.RUN_ALL
+    assert [finding.subject for finding in changed_mutator.blocking_findings] == [
+        "backend/scripts/benchmark_27b.py"
+    ]
+
+
+def test_changed_verified_isolated_entrypoint_stays_selective(repo_builder: RepoBuilder) -> None:
+    repo_builder.write(
+        {
+            ".acquit.toml": 'isolated_entrypoints = ["scripts/import_data.py"]\n',
+            "scripts/import_data.py": "import sys\n\nsys.path.insert(0, 'src')\n",
+            "app.py": "VALUE = 1\n",
+            "tests/test_app.py": "import app\n\n\ndef test_app():\n    assert app.VALUE == 1\n",
+        }
+    )
+    base = repo_builder.commit("base")
+    repo_builder.write({"scripts/import_data.py": "import sys\n\nsys.path.insert(0, 'lib')\n"})
+    head = repo_builder.commit("change import script")
+
+    result = run_select(base, head, repo_builder.path)
+
+    assert result.decision.mode is SelectionMode.SELECTIVE
+    assert result.blocking_findings == ()
+    assert selected_paths(result.decision) == set()
+    assert skipped_paths(result.decision) == {"tests/test_app.py"}
+    assert RuleId.ISOLATED_ENTRYPOINT_UNPROVEN not in {
+        finding.rule for finding in result.outcome.findings
+    }
 
 
 def test_select_witnesses_verify_against_recomputed_closures(

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0](https://github.com/rajeev-chaurasia/acquit/compare/v0.2.0...v0.3.0) (2026-09-28)
+
+
+### Features
+
+* verify isolated entry points ([#21](https://github.com/rajeev-chaurasia/acquit/issues/21)) ([b8cdc43](https://github.com/rajeev-chaurasia/acquit/commit/b8cdc435fa0a26c3865f1f2292ab04254f828b5f))
+
+## [0.2.0](https://github.com/rajeev-chaurasia/acquit/compare/v0.1.3...v0.2.0) (2026-09-05)
+
+
+### Features
+
+* add canary runtime evidence ([#17](https://github.com/rajeev-chaurasia/acquit/issues/17)) ([2c1e378](https://github.com/rajeev-chaurasia/acquit/commit/2c1e37800f03439fba925021530afdec6c901694))
+
+## [0.1.3](https://github.com/rajeev-chaurasia/acquit/compare/v0.1.2...v0.1.3) (2026-08-21)
+
+
+### Bug Fixes
+
+* preserve selection for unreachable sys.path scripts ([#12](https://github.com/rajeev-chaurasia/acquit/issues/12)) ([4315065](https://github.com/rajeev-chaurasia/acquit/commit/4315065c9a7150a61a196f8fb55daa0cb3df9262))
+
+## [0.1.2](https://github.com/rajeev-chaurasia/acquit/compare/v0.1.1...v0.1.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* handle nested pytest configs and sync release pins ([#9](https://github.com/rajeev-chaurasia/acquit/issues/9)) ([d5bb932](https://github.com/rajeev-chaurasia/acquit/commit/d5bb93263eabd8d610bc2071f7cc3e4531eb1206))
+
 ## [0.1.1](https://github.com/rajeev-chaurasia/acquit/compare/v0.1.0...v0.1.1) (2026-08-09)
 
 
